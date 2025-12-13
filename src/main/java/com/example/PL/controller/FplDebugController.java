@@ -1,7 +1,7 @@
 package com.example.PL.controller;
 
 import com.example.PL.service.FplClient;
-import com.fasterxml.jackson.databind.JsonNode;
+import tools.jackson.databind.JsonNode;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
 import reactor.core.publisher.Mono;

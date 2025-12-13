@@ -44,6 +44,7 @@ public class SecurityConfiguration {
                         // Public endpoints (no auth)
                         .requestMatchers("/auth/**").permitAll()
                         .requestMatchers("/ws/**").permitAll()
+                        .requestMatchers("/fpl/**").permitAll()
 
                         // Authenticated user endpoints
                         // (Anything that modifies data, or user-specific resources)
