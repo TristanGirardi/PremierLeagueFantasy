@@ -12,7 +12,7 @@ public class WebClientConfig {
 
     @Bean
     public WebClient fplWebClient() {
-        // FPL responses can be large; increase buffer.
+        // Added a buffer
         var strategies = ExchangeStrategies.builder()
                 .codecs(cfg -> cfg.defaultCodecs().maxInMemorySize(8 * 1024 * 1024))
                 .build();
