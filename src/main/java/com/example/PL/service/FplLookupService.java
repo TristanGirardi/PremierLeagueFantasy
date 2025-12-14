@@ -4,7 +4,9 @@ import tools.jackson.databind.JsonNode;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
 
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 @Service
@@ -78,4 +80,16 @@ public class FplLookupService {
                 });
     }
 
+    public Mono<List<Integer>> getAllPlayerIds() {
+        return fplClient.getBootstrapStatic()
+                .map(bootstrap -> {
+                    JsonNode players = bootstrap.get("elements");
+                    List<Integer> ids = new ArrayList<>(players.size());
+                    for (int i = 0; i < players.size(); i++) {
+                        ids.add(players.get(i).get("id").asInt());
+                    }
+                    return ids;
+                });
+
+    }
 }
