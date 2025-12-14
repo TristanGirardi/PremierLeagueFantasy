@@ -48,7 +48,6 @@ public class DatasetController {
                                 .append(r.opponentTeamId()).append(",")
                                 .append(r.fixtureDifficulty()).append(",")
                                 .append(r.avgMinutes5()).append(",")
-                                .append(r.avgPoints5()).append(",")
                                 .append(r.avgGoals5()).append(",")
                                 .append(r.avgAssists5()).append(",")
                                 .append(r.avgSaves5()).append(",")
