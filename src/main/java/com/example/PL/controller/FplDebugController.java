@@ -20,6 +20,7 @@ public class FplDebugController {
 
     private final FplClient fplClient;
     private final FplLookupService lookupService;
+    private final FplLookupService fplLookupService;
 
     @GetMapping("/bootstrap")
     public Mono<JsonNode> bootstrap() {
@@ -32,8 +33,8 @@ public class FplDebugController {
     }
 
     @GetMapping("/player/{id}")
-    public Mono<JsonNode> player(@PathVariable int id) {
-        return fplClient.getElementSummary(id);
+    public Mono<Map<Integer, String>> player(@PathVariable int id) {
+        return fplLookupService.getPlayerIdToNameMap();
     }
 
     @GetMapping("/players/enriched")

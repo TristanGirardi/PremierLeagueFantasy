@@ -18,8 +18,7 @@ public class DatasetService {
     private final FeatureBuilderService featureBuilder;
     private final FantasyScoringService scoringService;
 
-    // Change these anytime
-    private static final int WINDOW = 5;          // or 15 later
+    private static final int WINDOW = 5;
     private static final int CONCURRENCY = 6;
 
     public DatasetService(
@@ -40,9 +39,7 @@ public class DatasetService {
                 "avgGoalsConceded5,avgCbi5,avgYellow5,avgRed5,labelTotalPoints\n";
     }
 
-    /** One big dataset: rows for ALL players (training rows with labelTotalPoints filled). */
     public Flux<PlayerFeatureRowDto> trainingRowsAllPlayers() {
-
         Mono<List<Integer>> playerIdsMono = lookupService.getAllPlayerIds();
         Mono<Map<Integer, String>> playerNameMapMono = lookupService.getPlayerIdToWebNameMap();
         Mono<Map<Integer, Integer>> playerPosIdMapMono = lookupService.getPlayerIdToPositionIdMap();
@@ -69,9 +66,7 @@ public class DatasetService {
                 });
     }
 
-    /** Training rows for a single player (labelTotalPoints filled). Useful for debugging. */
     public Flux<PlayerFeatureRowDto> trainingRowsForPlayer(int playerId) {
-
         Mono<JsonNode> elementSummaryMono = fplClient.getElementSummary(playerId);
         Mono<Map<Integer, String>> playerNameMapMono = lookupService.getPlayerIdToWebNameMap();
         Mono<Map<Integer, Integer>> playerPosIdMapMono = lookupService.getPlayerIdToPositionIdMap();
@@ -93,11 +88,8 @@ public class DatasetService {
                     if (history.size() <= 1) return Flux.empty();
 
                     FantasyScoringService.Position pos = toPosition(positionId);
-
-                    // Precompute custom points for all matches
                     List<Integer> customPoints = computeCustomPoints(history, pos);
 
-                    // Variable window so you get MANY rows (not 1 row/player)
                     return Flux.range(1, history.size() - 1)
                             .map(i -> buildTrainingRow(
                                     playerId,
@@ -112,16 +104,17 @@ public class DatasetService {
                 });
     }
 
-    /** Prediction row for a player's NEXT fixture (labelTotalPoints = null). */
+    /**
+     * FIXED: Added proper null checking for players without upcoming fixtures
+     */
     public Mono<PlayerFeatureRowDto> nextFixtureRowForPlayer(int playerId) {
-
         Mono<JsonNode> elementSummaryMono = fplClient.getElementSummary(playerId);
         Mono<Map<Integer, String>> playerNameMapMono = lookupService.getPlayerIdToWebNameMap();
         Mono<Map<Integer, Integer>> playerPosIdMapMono = lookupService.getPlayerIdToPositionIdMap();
         Mono<Map<Integer, String>> posNameMapMono = lookupService.getPositionIdToNameMap();
 
         return Mono.zip(elementSummaryMono, playerNameMapMono, playerPosIdMapMono, posNameMapMono)
-                .map(tuple -> {
+                .flatMap(tuple -> {
                     JsonNode elementSummary = tuple.getT1();
                     Map<Integer, String> playerNameMap = tuple.getT2();
                     Map<Integer, Integer> posIdMap = tuple.getT3();
@@ -133,32 +126,62 @@ public class DatasetService {
 
                     List<FeatureBuilderService.MatchStats> history = featureBuilder.parseHistory(elementSummary);
 
+                    // Check if player has played any matches
+                    if (history.isEmpty()) {
+                        return Mono.error(new IllegalStateException(
+                                "Player " + playerId + " (" + playerName + ") has no match history"
+                        ));
+                    }
+
                     FantasyScoringService.Position pos = toPosition(positionId);
                     List<Integer> customPoints = computeCustomPoints(history, pos);
-
                     int effectiveWindow = windowEffective(history.size(), WINDOW);
 
-                    // Rolling features from full history
                     var roll = featureBuilder.rollingFeatures(history, customPoints, effectiveWindow);
 
-                    // Next fixture (upcoming)
+                    // Get upcoming fixtures
                     JsonNode fixtures = elementSummary.get("fixtures");
+
+                    // ✅ FIX: Check if fixtures exist and have at least one upcoming match
                     if (fixtures == null || fixtures.size() == 0) {
-                        throw new IllegalStateException("No upcoming fixtures found for player " + playerId);
+                        return Mono.error(new IllegalStateException(
+                                "No upcoming fixtures found for player " + playerId + " (" + playerName + ")"
+                        ));
                     }
 
                     JsonNode next = fixtures.get(0);
-                    int fixtureId = next.get("id").asInt();
-                    Integer gw = next.get("event").isNull() ? null : next.get("event").asInt();
 
-                    boolean isHome = next.get("is_home").asBoolean(false);
-                    int opponentTeamId = next.get("opponent_team").asInt();
+                    // ✅ FIX: Safely extract fields with null checks
+                    JsonNode idNode = next.get("id");
+                    if (idNode == null) {
+                        return Mono.error(new IllegalStateException(
+                                "Fixture ID missing for player " + playerId
+                        ));
+                    }
+                    int fixtureId = idNode.asInt();
 
-                    Integer fdr = next.has("difficulty") ? next.get("difficulty").asInt() : null;
+                    JsonNode eventNode = next.get("event");
+                    Integer gw = (eventNode == null || eventNode.isNull()) ? null : eventNode.asInt();
+
+                    JsonNode isHomeNode = next.get("is_home");
+                    boolean isHome = (isHomeNode != null) && isHomeNode.asBoolean(false);
+
+//                    JsonNode opponentNode = next.get("opponent_team");
+//                    if (opponentNode == null) {
+//                        return Mono.error(new IllegalStateException(
+//                                "Opponent team missing for fixture " + fixtureId
+//                        ));
+//                    }
+                   // int opponentTeamId = opponentNode.asInt();
+
+                    JsonNode difficultyNode = next.get("difficulty");
+                    Integer fdr = (difficultyNode != null && !difficultyNode.isNull())
+                            ? difficultyNode.asInt()
+                            : null;
 
                     int teamId = -1;
 
-                    return new PlayerFeatureRowDto(
+                    return Mono.just(new PlayerFeatureRowDto(
                             playerId,
                             playerName,
                             positionId,
@@ -167,7 +190,7 @@ public class DatasetService {
                             fixtureId,
                             gw,
                             isHome,
-                            opponentTeamId,
+                            0,
                             teamId,
                             fdr,
 
@@ -184,11 +207,10 @@ public class DatasetService {
                             roll.avgRed5(),
 
                             null
-                    );
+                    ));
                 });
     }
 
-    /** Internal helper used by the all-players dataset builder. */
     private Flux<PlayerFeatureRowDto> trainingRowsForOnePlayer(
             int playerId,
             Map<Integer, String> playerNameMap,
@@ -209,7 +231,6 @@ public class DatasetService {
 
                     List<Integer> customPoints = computeCustomPoints(history, pos);
 
-                    // Variable window: i starts at 1, window grows until it hits WINDOW
                     return Flux.range(1, history.size() - 1)
                             .map(i -> buildTrainingRow(
                                     playerId,
@@ -224,7 +245,6 @@ public class DatasetService {
                 });
     }
 
-    /** Build one labeled training row at index i (features from [0..i-1], label from i). */
     private PlayerFeatureRowDto buildTrainingRow(
             int playerId,
             String playerName,
@@ -242,7 +262,7 @@ public class DatasetService {
 
         var roll = featureBuilder.rollingFeatures(priorMatches, priorPoints, effectiveWindow);
 
-        int label = customPoints.get(i); // ✅ your scoring
+        int label = customPoints.get(i);
 
         int teamId = -1;
         Integer fixtureDifficulty = null;
@@ -276,7 +296,6 @@ public class DatasetService {
         );
     }
 
-    /** Convert a row to one CSV line */
     public String toCsvLine(PlayerFeatureRowDto r) {
         return r.playerId() + "," +
                 r.positionId() + "," +

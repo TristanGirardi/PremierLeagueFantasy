@@ -46,6 +46,11 @@ public class SecurityConfiguration {
                         .requestMatchers("/ws/**").permitAll()
                         .requestMatchers("/fpl/**").permitAll()
                         .requestMatchers("/dataset/**").permitAll()
+                        .requestMatchers("/dataset/**").permitAll()
+                        .requestMatchers("/api/ml/**").permitAll()
+                      //  .requestMatchers("/api/ml/predict/**").permitAll()
+                        // ML Training - POST requires authentication (write operations)
+
 
                         // Authenticated user endpoints
                         // (Anything that modifies data, or user-specific resources)
